@@ -1,0 +1,314 @@
+<!--
+* Copyright 2025-2026 Mukesh Music 4U, Inc.
+* Created By : MUKESH B
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MUKESH MUSIC 4U - Dreamly Five</title>
+<meta name="description" content="MUKESH MUSIC 4U is an online ad free music player">
+<link rel="shortcut icon" href="https://i.ibb.co/FbWXTx0t/Mukesh-Music4-U.jpg" type="image/x-icon">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+<style>
+:root{--primary:#4f46e5}
+body{background:#0f172a;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;padding-top:120px;padding-bottom:100px}
+.song-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:.5rem}
+.song-card{background:#1e293b;border-radius:.5rem;overflow:hidden;transition:transform .2s;position:relative;cursor:pointer}
+.song-card:hover{transform:translateY(-4px)}
+.image-container{position:relative;overflow:hidden}
+.play-overlay{position:absolute;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s}
+.song-card:hover .play-overlay{opacity:1}
+.play-button{width:50px;height:50px;border-radius:50%;background:rgba(79,70,229,.9);display:flex;align-items:center;justify-content:center;color:#fff}
+.fixed-header{position:fixed;top:0;left:0;right:0;background:#062a66;z-index:50;border-bottom:1px solid #0b264d}
+.player-bar{background:rgba(15,23,42,.95);backdrop-filter:blur(10px);border-top:1px solid #334155;position:fixed;bottom:0;left:0;right:0;z-index:50}
+.progress-bar{background:#334155;height:9px;border-radius:2px;cursor:pointer}
+.progress{background:var(--primary);height:100%;border-radius:2px;width:0}
+.control-button{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#334155;color:#e2e8f0;transition:all .2s}
+.control-button:hover{background:var(--primary)}
+.search-bar{background:#1e293b;border:1px solid #334155;color:#fff}
+.search-bar:focus{border-color:var(--primary);outline:none}
+.genre-tag{background:#334155;color:#e2e8f0;padding:.375rem .75rem;border-radius:.75rem;margin:.2rem;cursor:pointer;transition:all .2s}
+.genre-tag:hover{background:var(--primary)}
+.loader{width:48px;height:48px;border:5px solid #fff;border-bottom-color:var(--primary);border-radius:50%;display:inline-block;box-sizing:border-box;animation:rotation 1s linear infinite}
+.volume-slider{-webkit-appearance:none;appearance:none;height:4px;border-radius:2px;background:#334155}
+.volume-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:12px;height:12px;border-radius:50%;background:var(--primary);cursor:pointer}
+@keyframes rotation{to{transform:rotate(360deg)}}
+@media(max-width:640px){.song-info{max-width:200px}.control-button{width:32px;height:32px}.player-image{width:40px;height:40px}body{padding-top:110px;padding-bottom:80px}}
+a.avatar{position:fixed;bottom:90px;right:-100px;animation:slide .5s 4.5s forwards;display:block;z-index:4}
+a.avatar img{border-radius:100%;width:50px;border:2px solid red}
+@keyframes slide{from{right:-100px;transform:rotate(360deg);opacity:0}to{right:30px;transform:rotate(0);opacity:1}}
+</style>
+</head>
+<body>
+<header class="fixed-header">
+  <div class="container mx-auto px-4 py-3">
+    <div class="flex justify-between items-center">
+      <img class="h-8 w-auto" src="https://i.ibb.co/kgqH4rG6/Mukesh-Music4-U.png" alt="Mukesh Music 4U">
+      <select id="saavn-bitrate" style="background:#334155;color:#fff;padding:7px;border-radius:7px;font-size:13px">
+        <option value="4">320kbps</option><option value="3">160kbps</option>
+        <option value="2">96kbps</option><option value="1">48kbps</option>
+      </select>
+    </div>
+    <div class="mt-3 relative">
+      <input type="text" id="saavn-search-box" placeholder="Search songs..." class="w-full px-4 py-2 rounded-lg search-bar text-sm">
+      <button id="saavn-search-trigger" class="absolute right-2 top-1/2 transform -translate-y-1/2 bg-[#4f46e5] text-white px-3 py-1.5 rounded-lg text-sm">Search</button>
+    </div>
+  </div>
+</header>
+
+<main class="container mx-auto px-4">
+  <div class="flex flex-wrap gap-2 mb-4" id="genre-tags"></div>
+  <div id="saavn-results" class="song-grid"><div class="text-center col-span-full">Loading featured songs...</div></div>
+  <div class="text-center mt-6 mb-24">
+    <button id="loadmore" class="bg-[#4f46e5] text-white px-5 py-2 rounded-lg hover:bg-[#4338ca] transition-colors text-sm" style="display:none">Load More</button>
+  </div>
+</main>
+
+<div id="audio-player" class="player-bar">
+  <div class="progress-bar" id="progress-container"><div class="progress"></div></div>
+  <div class="container mx-auto py-3 px-4">
+    <div class="flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3 song-info">
+        <img id="player-image" src="https://i.ibb.co/FbWXTx0t/Mukesh-Music4-U.jpg" class="w-12 h-12 rounded-lg player-image" alt="">
+        <div class="min-w-0">
+          <h3 id="player-name" class="font-medium text-sm truncate">Hi everyone</h3>
+          <p id="player-album" class="text-xs text-gray-400 truncate">Select a song to play</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <button class="control-button" id="btn-prev" aria-label="Previous"><i class="fas fa-step-backward"></i></button>
+        <button class="control-button" id="btn-play" aria-label="Play/Pause"><i class="fas fa-play" id="play-pause-icon"></i></button>
+        <button class="control-button" id="btn-next" aria-label="Next"><i class="fas fa-step-forward"></i></button>
+      </div>
+      <div class="hidden sm:flex items-center gap-2">
+        <i class="fas fa-volume-up" id="volume-icon"></i>
+        <input type="range" id="volume" class="volume-slider w-20" min="0" max="100" value="100">
+      </div>
+    </div>
+  </div>
+  <audio id="player" preload="none"></audio>
+</div>
+
+<a href="https://kkxstreamlive.pages.dev" class="avatar" id="avatarLink">
+  <img src="https://mukeshmusic4u.pages.dev/image/livetv.gif" alt="KK Xstream">
+</a>
+
+<script>
+const API_BASE = "https://dreamly5api.vercel.app/api/".replace(/\/+$/,'');   // change only this if the API moves
+let workingEndpoint = 0;
+function endpoints(q,limit,page){
+  const e=encodeURIComponent(q);
+  return [
+    `${API_BASE}/search/songs?query=${e}&limit=${limit}&page=${page}`,
+    `${API_BASE}/search/songs?q=${e}&limit=${limit}&page=${page}`,
+    `${API_BASE}/search?query=${e}&limit=${limit}&page=${page}`,
+    `${API_BASE}/search?q=${e}&limit=${limit}&page=${page}`
+  ];
+}
+async function fetchSearch(q,limit,page){
+  const list=endpoints(q,limit,page), order=[workingEndpoint,...list.keys()].filter((v,i,a)=>a.indexOf(v)===i), errs=[];
+  for(const i of order){
+    try{
+      const r=await fetch(list[i]);
+      if(!r.ok){ errs.push(r.status+' '+list[i]); continue; }
+      const d=await r.json();
+      const raw=pickResults(d);
+      if(raw.length||i===order[order.length-1]){ workingEndpoint=i; return raw; }
+    }catch(err){ errs.push(err.message+' '+list[i]); }
+  }
+  throw new Error('API not reachable. Tried: '+errs.join(' | '));
+}
+function pickResults(d){
+  const c=[d&&d.data&&d.data.results, d&&d.data&&d.data.songs&&d.data.songs.results, d&&d.data&&d.data.songs, d&&d.data, d&&d.results, d&&d.songs, d];
+  for(const x of c) if(Array.isArray(x)) return x;
+  return [];
+}
+const PAGE_SIZE = 40;
+
+let results_objects = {}, lastSearch = '', page_index = 1, currentPlaylist = [], currentTrackIndex = -1;
+
+const $ = id => document.getElementById(id);
+const audio = $('player'), grid = $('saavn-results'), loadMoreBtn = $('loadmore');
+
+/* ---------- helpers ---------- */
+function decode(s){ const t=document.createElement('textarea'); t.innerHTML=s||''; return t.value; }
+function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function pickLink(arr, i){
+  let out='';
+  if(typeof arr==='string') out=arr;
+  else if(Array.isArray(arr)&&arr.length){
+    const it = arr[Math.min(Math.max(i,0), arr.length-1)];
+    out = (it && (it.link||it.url)) || '';
+  }
+  return out.replace(/^http:\/\//,'https://');
+}
+function bitrateIndex(){ return parseInt($('saavn-bitrate').value,10); }
+function normalize(t){
+  const artists = t.primaryArtists
+    || (t.artists && t.artists.primary && t.artists.primary.map(a=>a.name).join(', '))
+    || t.artist || '';
+  return { ...t,
+    name: decode(t.name||t.title||'Unknown'),
+    primaryArtists: decode(artists),
+    duration: Number(t.duration)||0,
+    year: t.year||'' };
+}
+function formatDuration(sec){
+  sec = Math.floor(sec||0);
+  return Math.floor(sec/60)+':'+String(sec%60).padStart(2,'0');
+}
+function showLoader(){ grid.innerHTML='<div class="col-span-full text-center"><span class="loader"></span></div>'; }
+function showError(msg){ grid.innerHTML='<div class="col-span-full text-center text-red-500">'+esc(msg)+'</div>'; }
+
+/* ---------- genres ---------- */
+const genres = ['Best of 90s - Tamil','Hariharan - Tamil','Best of 2000s - Malayalam','Kalabhavan Mani','Thalapathy Vijay - Tamil','Anirudh - Tamil','Sid Sriram - Tamil','Yuvan Shankar Raja - Tamil','S.A. Rajkumar - Tamil','Vivek - Tamil','Deva - Tamil','A. R. Rahman - Tamil','Shyam Dharman - Malayalam','Unaroo','Vineeth Sreenivasan','Ouseppachan','Gireesh Puthenchery','M. Jayachandran','Vidyasagar - Malayalam','Ivan Torrent - Music'];
+genres.forEach(g=>{
+  const b=document.createElement('button');
+  b.className='genre-tag'; b.textContent=g;
+  b.onclick=()=>doSaavnSearch(g);
+  $('genre-tags').appendChild(b);
+});
+
+/* ---------- cards ---------- */
+function createSongCard(t){
+  const img = pickLink(t.image, 2);
+  return `<div class="song-card" data-id="${esc(t.id)}">
+    <div class="image-container">
+      <img src="${esc(img)}" class="w-full aspect-square object-cover" alt="${esc(t.name)}" loading="lazy">
+      <div class="play-overlay"><div class="play-button"><i class="fas fa-play"></i></div></div>
+    </div>
+    <div class="p-3">
+      <h3 class="font-medium truncate text-sm">${esc(t.name)}</h3>
+      <p class="text-xs text-gray-400 truncate">${esc(t.primaryArtists)}</p>
+      <p class="text-xs text-gray-500 mt-1">${esc(t.year)} - ${formatDuration(t.duration)}</p>
+    </div>
+  </div>`;
+}
+grid.addEventListener('click', e=>{
+  const card = e.target.closest('.song-card');
+  if(card) PlayAudio(card.dataset.id);
+});
+
+/* ---------- playback ---------- */
+function PlayAudio(song_id){
+  const entry = results_objects[song_id];
+  if(!entry) return;
+  const track = entry.track;
+  const url = pickLink(track.downloadUrl, bitrateIndex());
+  if(!url){ $('player-album').textContent='No playable link for this song'; return; }
+
+  $('player-name').textContent = track.name;
+  $('player-album').textContent = track.primaryArtists;
+  $('player-image').src = pickLink(track.image, 2) || $('player-image').src;
+  currentTrackIndex = currentPlaylist.findIndex(t=>String(t.id)===String(song_id));
+
+  audio.src = url;
+  audio.play().then(()=>{ $('play-pause-icon').className='fas fa-pause'; })
+    .catch(err=>{
+      console.error('Error playing audio:', err);
+      $('play-pause-icon').className='fas fa-play';
+      $('player-album').textContent='Could not play this song. Try another or a lower bitrate.';
+    });
+}
+function togglePlay(){
+  if(!audio.src) return;
+  if(audio.paused){ audio.play().catch(console.error); }
+  else audio.pause();
+}
+audio.addEventListener('play', ()=>$('play-pause-icon').className='fas fa-pause');
+audio.addEventListener('pause',()=>$('play-pause-icon').className='fas fa-play');
+function previousTrack(){ if(currentTrackIndex>0) PlayAudio(currentPlaylist[currentTrackIndex-1].id); }
+function nextTrack(){ if(currentTrackIndex>=0 && currentTrackIndex<currentPlaylist.length-1) PlayAudio(currentPlaylist[currentTrackIndex+1].id); }
+
+$('btn-prev').onclick=previousTrack;
+$('btn-play').onclick=togglePlay;
+$('btn-next').onclick=nextTrack;
+audio.addEventListener('ended', nextTrack);
+
+$('volume').addEventListener('input', e=>{
+  const v=+e.target.value; audio.volume=v/100;
+  $('volume-icon').className = v===0?'fas fa-volume-mute':v<50?'fas fa-volume-down':'fas fa-volume-up';
+});
+
+/* ---------- progress ---------- */
+const progressContainer = $('progress-container'), progressBar = progressContainer.querySelector('.progress');
+progressContainer.addEventListener('click', e=>{
+  if(!audio.duration) return;
+  const r=progressContainer.getBoundingClientRect();
+  audio.currentTime = ((e.clientX-r.left)/r.width)*audio.duration;
+});
+audio.addEventListener('timeupdate', ()=>{
+  if(!audio.duration) return;
+  progressBar.style.width = (audio.currentTime/audio.duration*100)+'%';
+});
+
+/* ---------- search ---------- */
+async function SaavnSearch(){
+  const q = $('saavn-search-box').value.trim();
+  if(!q || q===lastSearch) return;
+  await doSaavnSearch(q);
+}
+async function doSaavnSearch(query, NotScroll, isMore){
+  if(!query) return;
+  const nextPage = isMore ? page_index+1 : 1;
+  if(!isMore) showLoader();
+
+  try{
+    const raw = await fetchSearch(query, PAGE_SIZE, nextPage);
+    const results = raw.map(normalize).filter(t=>t.id);
+
+    if(!results.length){
+      if(!isMore) showError('No results found');
+      loadMoreBtn.style.display='none';
+      return;
+    }
+
+    page_index = nextPage;
+    lastSearch = query;
+    if(isMore){ currentPlaylist = currentPlaylist.concat(results); }
+    else{ currentPlaylist = results; results_objects = {}; grid.innerHTML=''; }
+
+    results.forEach(t=>{ results_objects[t.id]={track:t}; });
+    grid.insertAdjacentHTML('beforeend', results.map(createSongCard).join(''));
+
+    if(!NotScroll && !isMore) grid.scrollIntoView({behavior:'smooth'});
+    loadMoreBtn.style.display = results.length < PAGE_SIZE ? 'none' : 'inline-block';
+  }catch(err){
+    console.error(err);
+    if(isMore) alert('Could not load more: '+err.message);
+    else showError(err.message);
+  }
+}
+
+loadMoreBtn.addEventListener('click', ()=>{
+  const old = loadMoreBtn.textContent;
+  loadMoreBtn.textContent='Loading...'; loadMoreBtn.disabled=true;
+  doSaavnSearch(lastSearch,true,true).finally(()=>{ loadMoreBtn.textContent=old; loadMoreBtn.disabled=false; });
+});
+$('saavn-search-trigger').addEventListener('click', SaavnSearch);
+$('saavn-search-box').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); SaavnSearch(); }});
+
+/* ---------- shortcuts / bitrate ---------- */
+document.addEventListener('keydown', e=>{
+  const typing = ['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName);
+  if(e.code==='Space' && !typing){ e.preventDefault(); togglePlay(); }
+  else if(e.code==='ArrowLeft' && e.ctrlKey) previousTrack();
+  else if(e.code==='ArrowRight' && e.ctrlKey) nextTrack();
+});
+$('saavn-bitrate').addEventListener('change', ()=>{
+  if(currentTrackIndex<0) return;
+  const t = currentPlaylist[currentTrackIndex], pos = audio.currentTime, wasPlaying = !audio.paused;
+  const url = pickLink(t.downloadUrl, bitrateIndex());
+  if(!url) return;
+  audio.src = url;
+  audio.addEventListener('loadedmetadata', function f(){ audio.currentTime=pos; audio.removeEventListener('loadedmetadata',f); });
+  if(wasPlaying) audio.play().catch(console.error);
+});
+
+window.addEventListener('load', ()=>doSaavnSearch('tamil', true));
+</script>
+</body>
+</html>
