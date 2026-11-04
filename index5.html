@@ -1,0 +1,472 @@
+<!--
+* Copyright 2025-2026 Mukesh Music 4U, Inc.
+* Created By : MUKESH B
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MUKESH MUSIC 4U - Dreamly Five</title>
+<meta name="description" content="MUKESH MUSIC 4U is an online ad free music player">
+<link rel="shortcut icon" href="https://i.ibb.co/FbWXTx0t/Mukesh-Music4-U.jpg" type="image/x-icon">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+<style>
+:root{--primary:#4f46e5}
+body{background:#0f172a;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;padding-top:120px;padding-bottom:90px}
+.song-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:.5rem}
+.song-card{background:#1e293b;border-radius:.5rem;overflow:hidden;transition:transform .2s;position:relative;cursor:pointer}
+.song-card:hover{transform:translateY(-4px)}
+.image-container{position:relative;overflow:hidden}
+.play-overlay{position:absolute;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s}
+.song-card:hover .play-overlay,.song-card.active .play-overlay{opacity:1}
+.play-button{width:50px;height:50px;border-radius:50%;background:rgba(79,70,229,.9);display:flex;align-items:center;justify-content:center;color:#fff}
+.fixed-header{position:fixed;top:0;left:0;right:0;background:#062a66;z-index:50;border-bottom:1px solid #0b264d}
+.search-bar{background:#1e293b;border:1px solid #334155;color:#fff}
+.search-bar:focus{border-color:var(--primary);outline:none}
+.genre-tag{background:#334155;color:#e2e8f0;padding:.375rem .75rem;border-radius:.75rem;margin:.2rem;cursor:pointer;transition:all .2s}
+.genre-tag:hover{background:var(--primary)}
+.loader{width:48px;height:48px;border:5px solid #fff;border-bottom-color:var(--primary);border-radius:50%;display:inline-block;box-sizing:border-box;animation:rotation 1s linear infinite}
+@keyframes rotation{to{transform:rotate(360deg)}}
+/* mini player */
+#mini-player{position:fixed;bottom:0;left:0;right:0;z-index:55;background:rgba(15,23,42,.96);backdrop-filter:blur(10px);border-top:1px solid #334155}
+#mini-progress{height:6px;background:#dc2626;cursor:pointer}
+#mini-progress div{height:100%;width:0;background:#fff}
+.cbtn{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#334155;color:#e2e8f0;transition:.2s;flex:none}
+.cbtn:hover,.cbtn.on{background:var(--primary)}
+/* full player */
+#full-player{position:fixed;inset:0;z-index:60;background:linear-gradient(var(--bg1,#1e1b4b),#0f172a 75%);transition:transform .35s,background .6s;transform:translateY(100%);overflow-y:auto;visibility:hidden}
+#full-player.open{transform:none;visibility:visible}
+#fp-bg{position:fixed;inset:0;z-index:-1;background-size:cover;background-position:center;filter:blur(55px) brightness(.5) saturate(1.5);transform:scale(1.4);opacity:.9;transition:background-image .5s}
+#rep-one{position:absolute;top:3px;right:3px;width:14px;height:14px;border-radius:50%;background:#fff;color:#000;font-size:9px;font-weight:700;line-height:14px;text-align:center;display:none}
+#fp-art{width:min(75vw,320px);aspect-ratio:1;object-fit:cover;border-radius:1rem;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+#fp-seek{width:100%;-webkit-appearance:none;appearance:none;height:6px;border-radius:3px;background:linear-gradient(to right,#fff var(--pct,0%),#dc2626 var(--pct,0%));outline:none}
+#fp-seek::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid #dc2626}
+#fp-seek::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid #dc2626}
+#fp-seek::-moz-range-track{background:#dc2626;height:6px;border-radius:3px}
+#fp-seek::-moz-range-progress{background:#fff;height:6px;border-radius:3px}
+.fp-big{width:64px;height:64px;font-size:1.4rem;background:var(--primary)}
+.abar{display:flex;justify-content:space-around;border-top:1px solid #334155;border-bottom:1px solid #334155;padding:.6rem 0;margin:1.2rem 0}
+.abar button{display:flex;flex-direction:column;align-items:center;gap:.2rem;font-size:.7rem;color:#94a3b8}
+.abar button i{font-size:1.15rem;color:#e2e8f0}.abar button.on i{color:#f43f5e}
+.row{display:flex;align-items:center;gap:.75rem;padding:.4rem;border-radius:.5rem;cursor:pointer}
+.row:hover,.row.active{background:#1e293b}
+.row img{width:44px;height:44px;border-radius:.4rem;object-fit:cover}
+.sect{font-weight:600;margin:1.2rem 0 .4rem}
+a.avatar{position:fixed;bottom:100px;right:-100px;animation:slide .5s 4.5s forwards;display:block;z-index:4}
+a.avatar img{border-radius:100%;width:50px;border:2px solid red}
+@keyframes slide{from{right:-100px;transform:rotate(360deg);opacity:0}to{right:30px;transform:rotate(0);opacity:1}}
+@media(max-width:640px){body{padding-top:110px}}
+</style>
+</head>
+<body>
+<header class="fixed-header">
+  <div class="container mx-auto px-4 py-3">
+    <div class="flex justify-between items-center">
+      <img class="h-8 w-auto" src="https://i.ibb.co/kgqH4rG6/Mukesh-Music4-U.png" alt="Mukesh Music 4U">
+      <select id="saavn-bitrate" style="background:#334155;color:#fff;padding:7px;border-radius:7px;font-size:13px">
+        <option value="4">320kbps</option><option value="3">160kbps</option><option value="2">96kbps</option><option value="1">48kbps</option>
+      </select>
+    </div>
+    <div class="mt-3 relative">
+      <input type="text" id="saavn-search-box" placeholder="Search songs..." class="w-full px-4 py-2 rounded-lg search-bar text-sm">
+      <button id="saavn-search-trigger" class="absolute right-2 top-1/2 transform -translate-y-1/2 bg-[#4f46e5] text-white px-3 py-1.5 rounded-lg text-sm">Search</button>
+    </div>
+  </div>
+</header>
+
+<main class="container mx-auto px-4">
+  <div class="flex flex-wrap gap-2 mb-4" id="genre-tags"></div>
+  <div id="saavn-results" class="song-grid"><div class="text-center col-span-full">Loading featured songs...</div></div>
+  <div class="text-center mt-6 mb-24">
+    <button id="loadmore" class="bg-[#4f46e5] text-white px-5 py-2 rounded-lg text-sm" style="display:none">Load More</button>
+  </div>
+</main>
+
+<!-- MINI PLAYER -->
+<div id="mini-player">
+  <div id="mini-progress"><div></div></div>
+  <div class="container mx-auto px-4 py-2 flex items-center gap-3">
+    <div id="mini-open" class="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
+      <img id="mp-img" src="https://i.ibb.co/FbWXTx0t/Mukesh-Music4-U.jpg" class="w-11 h-11 rounded-lg object-cover" alt="">
+      <div class="min-w-0">
+        <h3 id="mp-name" class="font-medium text-sm truncate">Hi everyone</h3>
+        <p id="mp-artist" class="text-xs text-gray-400 truncate">Select a song to play</p>
+      </div>
+    </div>
+    <button class="cbtn" id="mp-prev" aria-label="Previous"><i class="fas fa-step-backward"></i></button>
+    <button class="cbtn" id="mp-play" aria-label="Play/Pause"><i class="fas fa-play"></i></button>
+    <button class="cbtn" id="mp-next" aria-label="Next"><i class="fas fa-step-forward"></i></button>
+    <button class="cbtn" id="mp-expand" aria-label="Open player"><i class="fas fa-chevron-up"></i></button>
+  </div>
+</div>
+
+<!-- FULL PLAYER -->
+<div id="full-player">
+  <div id="fp-bg"></div>
+  <div class="max-w-lg mx-auto px-5 pb-10">
+    <div class="flex items-center justify-between py-4">
+      <button class="cbtn" id="fp-close" aria-label="Close"><i class="fas fa-chevron-down"></i></button>
+      <span class="text-xs text-gray-400 tracking-widest">NOW PLAYING</span>
+      <span style="width:38px"></span>
+    </div>
+    <div class="flex justify-center my-2"><img id="fp-art" src="https://i.ibb.co/FbWXTx0t/Mukesh-Music4-U.jpg" alt=""></div>
+    <!-- SONG INFO -->
+    <div class="mt-5 text-center">
+      <h2 id="fp-name" class="text-xl font-semibold">Hi everyone</h2>
+      <p id="fp-artist" class="text-sm text-gray-400 mt-1"></p>
+      <p id="fp-meta" class="text-xs text-gray-500 mt-1"></p>
+    </div>
+    <!-- PROGRESS -->
+    <div class="mt-5">
+      <input type="range" id="fp-seek" min="0" max="100" step="0.1" value="0">
+      <div class="flex justify-between text-xs text-gray-400 mt-1"><span id="fp-cur">0:00</span><span id="fp-dur">0:00</span></div>
+    </div>
+    <!-- PLAYBACK CONTROLS -->
+    <div class="flex items-center justify-between mt-4 px-2">
+      <button class="cbtn" id="fp-shuffle" aria-label="Shuffle" title="Shuffle off"><i class="fas fa-random"></i></button>
+      <button class="cbtn" id="fp-prev" aria-label="Previous"><i class="fas fa-step-backward"></i></button>
+      <button class="cbtn fp-big" id="fp-play" aria-label="Play/Pause"><i class="fas fa-play"></i></button>
+      <button class="cbtn" id="fp-next" aria-label="Next"><i class="fas fa-step-forward"></i></button>
+      <button class="cbtn" id="fp-repeat" aria-label="Repeat" title="Repeat off" style="position:relative"><i class="fas fa-redo"></i><span id="rep-one">1</span></button>
+    </div>
+    <div class="hidden sm:flex items-center justify-center gap-2 mt-4">
+      <i class="fas fa-volume-up text-gray-400"></i>
+      <input type="range" id="fp-vol" min="0" max="100" value="100" style="width:140px" aria-label="Volume">
+    </div>
+    <!-- ACTION BAR -->
+    <div class="abar">
+      <button id="ac-like"><i class="fas fa-heart"></i>Like</button>
+      <button id="ac-download"><i class="fas fa-download"></i>Download</button>
+      <button id="ac-share"><i class="fas fa-share-alt"></i>Share</button>
+    </div>
+    <!-- ALBUM -->
+    <div class="sect">Album <span id="album-name" class="text-gray-400 font-normal text-sm"></span></div>
+    <div id="album-list" class="text-sm text-gray-500">Open a song to see its album.</div>
+    <!-- SUGGESTIONS -->
+    <div class="sect">Suggestions</div>
+    <div id="sugg-list" class="text-sm text-gray-500">Suggestions will appear here.</div>
+  </div>
+</div>
+
+<audio id="player" preload="none"></audio>
+
+<a href="https://kkxstreamlive.pages.dev" class="avatar" id="avatarLink">
+  <img src="https://mukeshmusic4u.pages.dev/image/livetv.gif" alt="KK Xstream">
+</a>
+
+<script>
+const API_BASE = "https://dreamly5api.vercel.app/api/".replace(/\/+$/,'');
+const PAGE_SIZE = 40;
+let results_objects = {}, lastSearch = '', page_index = 1, currentPlaylist = [], currentTrackIndex = -1;
+let isPlaying = false, shuffle = false, repeatMode = 0, seeking = false, workingEndpoint = 0, extrasToken = 0, lists = {album:[],sugg:[]};
+const $ = id => document.getElementById(id);
+const audio = $('player'), grid = $('saavn-results'), loadMoreBtn = $('loadmore');
+
+/* ---------- helpers ---------- */
+function decode(s){ const t=document.createElement('textarea'); t.innerHTML=s||''; return t.value; }
+function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function pickLink(arr,i){
+  let out='';
+  if(typeof arr==='string') out=arr;
+  else if(Array.isArray(arr)&&arr.length){ const it=arr[Math.min(Math.max(i,0),arr.length-1)]; out=(it&&(it.link||it.url))||''; }
+  return out.replace(/^http:\/\//,'https://');
+}
+const bitrateIndex = () => parseInt($('saavn-bitrate').value,10);
+function normalize(t){
+  const artists = t.primaryArtists || (t.artists&&t.artists.primary&&t.artists.primary.map(a=>a.name).join(', ')) || t.artist || '';
+  const album = typeof t.album==='string' ? t.album : (t.album&&t.album.name)||'';
+  return {...t, name:decode(t.name||t.title||'Unknown'), primaryArtists:decode(artists), album:decode(album), duration:Number(t.duration)||0, year:t.year||''};
+}
+/* FORMAT TIME */
+function formatTime(sec){ sec=Math.floor(isFinite(sec)?sec:0); return Math.floor(sec/60)+':'+String(sec%60).padStart(2,'0'); }
+const formatDuration = formatTime;
+function showLoader(){ grid.innerHTML='<div class="col-span-full text-center"><span class="loader"></span></div>'; }
+function showError(m){ grid.innerHTML='<div class="col-span-full text-center text-red-500">'+esc(m)+'</div>'; }
+const icon = (el,cls) => el.querySelector('i').className = cls;
+
+/* ---------- API ---------- */
+function pickResults(d){
+  const c=[d&&d.data&&d.data.results, d&&d.data&&d.data.songs&&d.data.songs.results, d&&d.data&&d.data.songs, d&&d.data, d&&d.results, d&&d.songs, d];
+  for(const x of c) if(Array.isArray(x)) return x;
+  return [];
+}
+function endpoints(q,limit,page){
+  const e=encodeURIComponent(q);
+  return [`${API_BASE}/search/songs?query=${e}&limit=${limit}&page=${page}`,`${API_BASE}/search/songs?q=${e}&limit=${limit}&page=${page}`,
+          `${API_BASE}/search?query=${e}&limit=${limit}&page=${page}`,`${API_BASE}/search?q=${e}&limit=${limit}&page=${page}`];
+}
+async function fetchSearch(q,limit,page){
+  const list=endpoints(q,limit,page), order=[workingEndpoint,...list.keys()].filter((v,i,a)=>a.indexOf(v)===i), errs=[];
+  for(const i of order){
+    try{
+      const r=await fetch(list[i]);
+      if(!r.ok){ errs.push(r.status+' '+list[i]); continue; }
+      const raw=pickResults(await r.json());
+      if(raw.length||i===order[order.length-1]){ workingEndpoint=i; return raw; }
+    }catch(err){ errs.push(err.message+' '+list[i]); }
+  }
+  throw new Error('API not reachable. Tried: '+errs.join(' | '));
+}
+/* FETCH SONG DETAILS */
+async function fetchSongDetails(id){
+  for(const u of [`${API_BASE}/songs?id=${id}`,`${API_BASE}/songs/${id}`,`${API_BASE}/song?id=${id}`]){
+    try{ const r=await fetch(u); if(!r.ok) continue; const a=pickResults(await r.json()); if(a[0]) return normalize(a[0]); }catch(e){}
+  }
+  return null;
+}
+
+/* ---------- genres ---------- */
+['Best of 90s - Tamil','Hariharan - Tamil','Best of 2000s - Malayalam','Kalabhavan Mani','Thalapathy Vijay - Tamil','Anirudh - Tamil','Sid Sriram - Tamil','Yuvan Shankar Raja - Tamil','S.A. Rajkumar - Tamil','Vivek - Tamil','Deva - Tamil','A. R. Rahman - Tamil','Shyam Dharman - Malayalam','Unaroo','Vineeth Sreenivasan','Ouseppachan','Gireesh Puthenchery','M. Jayachandran','Vidyasagar - Malayalam','Ivan Torrent - Music'].forEach(g=>{
+  const b=document.createElement('button'); b.className='genre-tag'; b.textContent=g; b.onclick=()=>doSaavnSearch(g); $('genre-tags').appendChild(b);
+});
+
+/* ---------- cards & lists ---------- */
+function createSongCard(t){
+  return `<div class="song-card" data-id="${esc(t.id)}"><div class="image-container">
+    <img src="${esc(pickLink(t.image,2))}" class="w-full aspect-square object-cover" alt="${esc(t.name)}" loading="lazy">
+    <div class="play-overlay"><div class="play-button"><i class="fas fa-play"></i></div></div></div>
+    <div class="p-3"><h3 class="font-medium truncate text-sm">${esc(t.name)}</h3>
+    <p class="text-xs text-gray-400 truncate">${esc(t.primaryArtists)}</p>
+    <p class="text-xs text-gray-500 mt-1">${esc(t.year)} - ${formatTime(t.duration)}</p></div></div>`;
+}
+function rowHtml(t){
+  return `<div class="row" data-id="${esc(t.id)}"><img src="${esc(pickLink(t.image,1)||pickLink(t.image,0))}" alt="">
+    <div class="min-w-0 flex-1"><div class="text-sm truncate text-gray-200">${esc(t.name)}</div>
+    <div class="text-xs truncate text-gray-400">${esc(t.primaryArtists)}</div></div><span class="text-xs text-gray-500">${formatTime(t.duration)}</span></div>`;
+}
+function register(arr){ arr.forEach(t=>{ results_objects[t.id]={track:t}; }); }
+grid.addEventListener('click',e=>{ const c=e.target.closest('.song-card'); if(c) PlayAudio(c.dataset.id); });
+[['album-list','album'],['sugg-list','sugg']].forEach(([id,key])=>{
+  $(id).addEventListener('click',e=>{
+    const r=e.target.closest('.row'); if(!r) return;
+    currentPlaylist=lists[key].slice(); PlayAudio(r.dataset.id);
+  });
+});
+function markActive(){
+  const id=currentPlaylist[currentTrackIndex]&&String(currentPlaylist[currentTrackIndex].id);
+  document.querySelectorAll('.song-card,.row').forEach(el=>el.classList.toggle('active',el.dataset.id===id));
+}
+
+/* ---------- playback ---------- */
+function PlayAudio(song_id){
+  const entry=results_objects[song_id]; if(!entry) return;
+  const track=entry.track, url=pickLink(track.downloadUrl,bitrateIndex());
+  if(!url){ $('mp-artist').textContent='No playable link for this song'; return; }
+  if(!currentPlaylist.some(t=>String(t.id)===String(song_id))) currentPlaylist=[track];
+  currentTrackIndex=currentPlaylist.findIndex(t=>String(t.id)===String(song_id));
+  updateSongInfo(track);
+  audio.src=url;
+  audio.play().catch(err=>{ console.error(err); setIsPlaying(false); $('mp-artist').textContent='Could not play. Try another song or lower bitrate.'; });
+  updateMediaSession(track); markActive(); refreshLike();
+  if($('full-player').classList.contains('open')) loadExtras(track);
+}
+/* PLAY / PAUSE */
+function togglePlay(){ if(!audio.src) return; audio.paused ? audio.play().catch(console.error) : audio.pause(); }
+function setIsPlaying(p){ isPlaying=p; const c=p?'fas fa-pause':'fas fa-play'; icon($('mp-play'),c); icon($('fp-play'),c); }
+function prevSong(){
+  if(audio.currentTime>3){ audio.currentTime=0; return; }
+  if(currentTrackIndex>0) PlayAudio(currentPlaylist[currentTrackIndex-1].id);
+}
+function nextSong(){
+  const n=currentPlaylist.length; if(currentTrackIndex<0||!n) return;
+  if(shuffle&&n>1){
+    let i; do{ i=Math.floor(Math.random()*n); }while(i===currentTrackIndex);
+    PlayAudio(currentPlaylist[i].id);
+  }else if(currentTrackIndex<n-1) PlayAudio(currentPlaylist[currentTrackIndex+1].id);
+  else if(repeatMode===1) PlayAudio(currentPlaylist[0].id);
+}
+/* SHUFFLE */
+function toggleShuffle(){
+  shuffle=!shuffle; const b=$('fp-shuffle');
+  b.classList.toggle('on',shuffle); b.title=shuffle?'Shuffle on':'Shuffle off';
+}
+/* REPEAT */
+function toggleRepeatMode(){
+  repeatMode=(repeatMode+1)%3;                       // 0 off, 1 repeat all, 2 repeat one
+  const b=$('fp-repeat');
+  b.classList.toggle('on',repeatMode>0);
+  $('rep-one').style.display=repeatMode===2?'block':'none';
+  b.title=['Repeat off','Repeat all','Repeat one'][repeatMode];
+}
+/* COVER IMAGE RGB BACKGROUND */
+function coverColor(src){
+  const fp=$('full-player'); if(!src){ fp.style.removeProperty('--bg1'); return; }
+  const im=new Image(); im.crossOrigin='anonymous';
+  im.onload=()=>{
+    try{
+      const c=document.createElement('canvas'); c.width=c.height=16;
+      const x=c.getContext('2d'); x.drawImage(im,0,0,16,16);
+      const d=x.getImageData(0,0,16,16).data; let r=0,g=0,b=0,n=0;
+      for(let i=0;i<d.length;i+=4){ r+=d[i]; g+=d[i+1]; b+=d[i+2]; n++; }
+      const k=.65; fp.style.setProperty('--bg1',`rgb(${Math.round(r/n*k)},${Math.round(g/n*k)},${Math.round(b/n*k)})`);
+    }catch(e){ fp.style.removeProperty('--bg1'); }   // CORS blocked: blurred cover still colours the background
+  };
+  im.onerror=()=>fp.style.removeProperty('--bg1');
+  im.src=src;
+}
+/* SONG INFO */
+function updateSongInfo(t){
+  const img=pickLink(t.image,2)||pickLink(t.image,0);
+  $('mp-name').textContent=$('fp-name').textContent=t.name;
+  $('mp-artist').textContent=$('fp-artist').textContent=t.primaryArtists;
+  $('mp-img').src=$('fp-art').src=img||$('mp-img').src;
+  $('fp-meta').textContent=[t.album,t.year,t.language].filter(Boolean).join(' • ');
+  $('fp-bg').style.backgroundImage=img?`url("${img}")`:'none';
+  coverColor(img);
+  document.title=t.name+' - MUKESH MUSIC 4U';
+}
+
+/* ---------- AUDIO EVENTS ---------- */
+audio.addEventListener('play',()=>{ setIsPlaying(true); if('mediaSession' in navigator) navigator.mediaSession.playbackState='playing'; });
+audio.addEventListener('pause',()=>{ setIsPlaying(false); if('mediaSession' in navigator) navigator.mediaSession.playbackState='paused'; });
+audio.addEventListener('waiting',()=>icon($('fp-play'),'fas fa-spinner fa-spin'));
+audio.addEventListener('playing',()=>setIsPlaying(true));
+audio.addEventListener('loadedmetadata',()=>{ $('fp-dur').textContent=formatTime(audio.duration); updatePosition(); });
+audio.addEventListener('timeupdate',()=>{
+  const d=audio.duration; if(!d||!isFinite(d)) return;
+  $('mini-progress').firstElementChild.style.width=(audio.currentTime/d*100)+'%';
+  if(!seeking){ setSeekUI(audio.currentTime/d*100); $('fp-cur').textContent=formatTime(audio.currentTime); }
+  updatePosition();
+});
+audio.addEventListener('ended',()=>{
+  if(repeatMode===2){ audio.currentTime=0; audio.play(); }
+  else if(shuffle||currentTrackIndex<currentPlaylist.length-1||repeatMode===1) nextSong();
+  else setIsPlaying(false);
+});
+audio.addEventListener('error',()=>{ if(audio.src) $('mp-artist').textContent='Playback error. Try another song.'; });
+
+/* ---------- SEEK ---------- */
+function seekTo(pct){ if(audio.duration) audio.currentTime=pct/100*audio.duration; }
+$('mini-progress').addEventListener('click',e=>{ const r=e.currentTarget.getBoundingClientRect(); seekTo((e.clientX-r.left)/r.width*100); });
+function setSeekUI(pct){ const k=$('fp-seek'); k.value=pct; k.style.setProperty('--pct',pct+'%'); }
+$('fp-seek').addEventListener('input',e=>{ seeking=true; e.target.style.setProperty('--pct',e.target.value+'%'); $('fp-cur').textContent=formatTime(e.target.value/100*(audio.duration||0)); });
+$('fp-seek').addEventListener('change',e=>{ seekTo(+e.target.value); seeking=false; });
+$('fp-vol').addEventListener('input',e=>{ audio.volume=e.target.value/100; });
+
+/* ---------- MEDIA SESSION ---------- */
+function updateMediaSession(t){
+  if(!('mediaSession' in navigator)) return;
+  const img=pickLink(t.image,2)||pickLink(t.image,0);
+  navigator.mediaSession.metadata=new MediaMetadata({title:t.name,artist:t.primaryArtists,album:t.album||'',artwork:img?[{src:img,sizes:'500x500',type:'image/jpeg'}]:[]});
+}
+function updatePosition(){
+  if(!('mediaSession' in navigator)||!navigator.mediaSession.setPositionState||!isFinite(audio.duration)||!audio.duration) return;
+  try{ navigator.mediaSession.setPositionState({duration:audio.duration,position:Math.min(audio.currentTime,audio.duration),playbackRate:audio.playbackRate||1}); }catch(e){}
+}
+if('mediaSession' in navigator){
+  const h=(a,f)=>{ try{ navigator.mediaSession.setActionHandler(a,f); }catch(e){} };
+  h('play',()=>audio.play()); h('pause',()=>audio.pause()); h('previoustrack',prevSong); h('nexttrack',nextSong);
+  h('seekbackward',d=>{ audio.currentTime=Math.max(0,audio.currentTime-((d&&d.seekOffset)||10)); });
+  h('seekforward',d=>{ audio.currentTime=Math.min(audio.duration||0,audio.currentTime+((d&&d.seekOffset)||10)); });
+  h('seekto',d=>{ if(d.seekTime!=null) audio.currentTime=d.seekTime; });
+}
+
+/* ---------- MINI / FULL PLAYER ---------- */
+function openFull(){
+  if(currentTrackIndex<0) return;
+  $('full-player').classList.add('open'); document.body.style.overflow='hidden';
+  loadExtras(currentPlaylist[currentTrackIndex]);
+}
+/* CLOSE */
+function closeFull(){ $('full-player').classList.remove('open'); document.body.style.overflow=''; }
+$('mini-open').onclick=$('mp-expand').onclick=openFull;
+$('fp-close').onclick=closeFull;
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeFull(); });
+$('mp-play').onclick=$('fp-play').onclick=togglePlay;
+$('mp-prev').onclick=$('fp-prev').onclick=prevSong;
+$('mp-next').onclick=$('fp-next').onclick=nextSong;
+$('fp-repeat').onclick=toggleRepeatMode;
+$('fp-shuffle').onclick=toggleShuffle;
+
+/* ---------- ALBUM + SUGGESTIONS ---------- */
+async function loadExtras(track){
+  const token=++extrasToken, aL=$('album-list'), sL=$('sugg-list');
+  aL.textContent='Loading...'; sL.textContent='Loading...'; $('album-name').textContent='';
+  const det=await fetchSongDetails(track.id);          // FETCH SONG DETAILS
+  if(token!==extrasToken) return;
+  if(det){
+    if(det.album) track.album=det.album;
+    if(det.year&&!track.year) track.year=det.year;
+    updateSongInfo(track);
+  }
+  const album=track.album, artist=(track.primaryArtists||'').split(',')[0].trim();
+  try{
+    if(album){
+      const raw=(await fetchSearch(album,20,1)).map(normalize).filter(t=>t.id);
+      if(token!==extrasToken) return;
+      const same=raw.filter(t=>t.album===album); lists.album=same.length?same:raw.slice(0,10);
+      register(lists.album); $('album-name').textContent='— '+album; aL.innerHTML=lists.album.map(rowHtml).join('');
+    }else aL.textContent='Album info not available.';
+  }catch(e){ aL.textContent='Could not load album.'; }
+  try{
+    if(artist){
+      const raw=(await fetchSearch(artist,20,1)).map(normalize).filter(t=>t.id&&String(t.id)!==String(track.id));
+      if(token!==extrasToken) return;
+      lists.sugg=raw; register(raw); sL.innerHTML=raw.map(rowHtml).join('')||'No suggestions found.';
+    }else sL.textContent='No suggestions found.';
+  }catch(e){ sL.textContent='Could not load suggestions.'; }
+  markActive();
+}
+
+/* ---------- ACTION BAR ---------- */
+const likes=(()=>{ try{ return new Set(JSON.parse(localStorage.getItem('mm4u_likes')||'[]')); }catch(e){ return new Set(); } })();
+function currentSong(){ return currentPlaylist[currentTrackIndex]; }
+function refreshLike(){ const t=currentSong(); $('ac-like').classList.toggle('on',!!t&&likes.has(String(t.id))); }
+$('ac-like').onclick=()=>{
+  const t=currentSong(); if(!t) return; const id=String(t.id);
+  likes.has(id)?likes.delete(id):likes.add(id);
+  try{ localStorage.setItem('mm4u_likes',JSON.stringify([...likes])); }catch(e){}
+  refreshLike();
+};
+$('ac-download').onclick=()=>{ const t=currentSong(); if(!t) return; const u=pickLink(t.downloadUrl,bitrateIndex()); if(u) window.open(u,'_blank'); };
+$('ac-share').onclick=async()=>{
+  const t=currentSong(); if(!t) return;
+  const data={title:t.name,text:t.name+' - '+t.primaryArtists+' | MUKESH MUSIC 4U',url:location.href};
+  try{ if(navigator.share) await navigator.share(data); else{ await navigator.clipboard.writeText(data.text+' '+data.url); alert('Link copied'); } }catch(e){}
+};
+
+/* ---------- search ---------- */
+async function SaavnSearch(){ const q=$('saavn-search-box').value.trim(); if(!q||q===lastSearch) return; await doSaavnSearch(q); }
+async function doSaavnSearch(query,NotScroll,isMore){
+  if(!query) return;
+  const nextPage=isMore?page_index+1:1;
+  if(!isMore) showLoader();
+  try{
+    const results=(await fetchSearch(query,PAGE_SIZE,nextPage)).map(normalize).filter(t=>t.id);
+    if(!results.length){ if(!isMore) showError('No results found'); loadMoreBtn.style.display='none'; return; }
+    page_index=nextPage; lastSearch=query;
+    if(isMore) currentPlaylist=currentPlaylist.concat(results);
+    else{ currentPlaylist=results; currentTrackIndex=-1; results_objects={}; grid.innerHTML=''; }
+    register(results);
+    grid.insertAdjacentHTML('beforeend',results.map(createSongCard).join(''));
+    if(!NotScroll&&!isMore) grid.scrollIntoView({behavior:'smooth'});
+    loadMoreBtn.style.display=results.length<PAGE_SIZE?'none':'inline-block';
+  }catch(err){ console.error(err); isMore?alert('Could not load more: '+err.message):showError(err.message); }
+}
+loadMoreBtn.addEventListener('click',()=>{
+  const old=loadMoreBtn.textContent; loadMoreBtn.textContent='Loading...'; loadMoreBtn.disabled=true;
+  doSaavnSearch(lastSearch,true,true).finally(()=>{ loadMoreBtn.textContent=old; loadMoreBtn.disabled=false; });
+});
+$('saavn-search-trigger').addEventListener('click',SaavnSearch);
+$('saavn-search-box').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); SaavnSearch(); } });
+
+/* ---------- shortcuts / bitrate ---------- */
+document.addEventListener('keydown',e=>{
+  if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) return;
+  if(e.code==='Space'){ e.preventDefault(); togglePlay(); }
+  else if(e.code==='ArrowLeft'&&e.ctrlKey) prevSong();
+  else if(e.code==='ArrowRight'&&e.ctrlKey) nextSong();
+});
+$('saavn-bitrate').addEventListener('change',()=>{
+  const t=currentSong(); if(!t) return;
+  const pos=audio.currentTime, was=!audio.paused, u=pickLink(t.downloadUrl,bitrateIndex()); if(!u) return;
+  audio.src=u;
+  audio.addEventListener('loadedmetadata',function f(){ audio.currentTime=pos; audio.removeEventListener('loadedmetadata',f); });
+  if(was) audio.play().catch(console.error);
+});
+window.addEventListener('load',()=>doSaavnSearch('tamil',true));
+</script>
+</body>
+</html>
