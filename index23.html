@@ -56,13 +56,11 @@ body{background:#0f172a;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
 .row img{width:44px;height:44px;border-radius:.4rem;object-fit:cover}
 .sect{font-weight:600;margin:1.2rem 0 .4rem}
 /* lyrics */
-#lyrics-box{position:relative;height:min(52vh,380px);overflow-y:auto;text-align:center;padding:40% 6px;scrollbar-width:none;
-  -webkit-mask-image:linear-gradient(transparent,#000 15%,#000 85%,transparent);mask-image:linear-gradient(transparent,#000 15%,#000 85%,transparent)}
+#lyrics-box{position:relative;height:min(52vh,380px);overflow-y:auto;scroll-behavior:smooth;text-align:center;padding:12px 6px;scrollbar-width:none;
+  -webkit-mask-image:linear-gradient(transparent,#000 6%,#000 94%,transparent);mask-image:linear-gradient(transparent,#000 6%,#000 94%,transparent)}
 #lyrics-box::-webkit-scrollbar{display:none}
-.ly{font-size:1.4rem;font-weight:700;line-height:1.3;padding:.4rem 0;color:rgba(255,255,255,.3);cursor:pointer;transition:color .3s,transform .3s,filter .3s;filter:blur(.8px)}
-.ly.past{color:rgba(255,255,255,.5)}
-.ly.act{color:#fff;transform:scale(1.05);filter:none}
-.ly.plain{font-size:1rem;font-weight:500;color:#e2e8f0;filter:none;cursor:default}
+.ly{font-size:1.15rem;font-weight:600;line-height:1.5;padding:.1rem 0;color:#f1f5f9}
+.ly.plain{font-size:1rem;font-weight:500;color:#cbd5e1}
 a.avatar{position:fixed;bottom:100px;right:-100px;animation:slide .5s 4.5s forwards;display:block;z-index:4}
 a.avatar img{border-radius:100%;width:50px;border:2px solid red}
 @keyframes slide{from{right:-100px;transform:rotate(360deg);opacity:0}to{right:30px;transform:rotate(0);opacity:1}}
@@ -128,7 +126,7 @@ a.avatar img{border-radius:100%;width:50px;border:2px solid red}
     <div id="lyrics-wrap" style="display:none">
       <div id="lyrics-box"></div>
       <div id="lyrics-src" class="text-xs text-gray-500 text-center mt-1"></div>
-      <div class="text-center"><button id="ly-set" class="text-xs text-gray-400 underline mt-1">Set Apple Music tokens</button></div>
+      <div class="text-center"><button id="ly-auto" class="text-xs text-gray-400 underline mt-1">Auto-scroll: On</button></div>
     </div>
     <!-- SONG INFO -->
     <div class="mt-5 text-center">
@@ -199,7 +197,6 @@ function normalize(t){
 }
 /* FORMAT TIME */
 function formatTime(sec){ sec=Math.floor(isFinite(sec)?sec:0); return Math.floor(sec/60)+':'+String(sec%60).padStart(2,'0'); }
-const formatDuration = formatTime;
 function showLoader(){ grid.innerHTML='<div class="col-span-full text-center"><span class="loader"></span></div>'; }
 function showError(m){ grid.innerHTML='<div class="col-span-full text-center text-red-500">'+esc(m)+'</div>'; }
 const icon = (el,cls) => el.querySelector('i').className = cls;
@@ -431,156 +428,91 @@ async function loadExtras(track){
   markActive();
 }
 
-/* ---------- LYRICS (multi-API + auto-scroll) ---------- */
-// Apple Music lyrics go through your Cloudflare CORS proxy, which forwards the headers given in x-cors-headers.
-// Tokens are stored only in this browser. Set them once by opening the player with:
-//   ?appledev=DEVELOPER_TOKEN&applemut=MUSIC_USER_TOKEN[&applesf=in]     (empty value, e.g. ?appledev=, removes it)
-const APPLE_PROXY='https://dreamlyproxy.mukeshlive.workers.dev/';
-const appleCfg=(()=>{ try{
-  const p=new URLSearchParams(location.search);
-  [['appledev','mm4u_apple_dev'],['applemut','mm4u_apple_mut'],['applesf','mm4u_apple_sf']].forEach(([q,k])=>{
-    const v=p.get(q); if(v!==null){ v?localStorage.setItem(k,v):localStorage.removeItem(k); } });
-  return {dev:localStorage.getItem('mm4u_apple_dev')||'',mut:localStorage.getItem('mm4u_apple_mut')||'',sf:localStorage.getItem('mm4u_apple_sf')||'in'};
-}catch(e){ return {dev:'',mut:'',sf:'in'}; } })();
-const appleGet=async(path,sig)=>{
-  const r=await fetch(APPLE_PROXY+'?url='+encodeURIComponent('https://api.music.apple.com/v1/catalog/'+appleCfg.sf+path),
-    {signal:sig,headers:{'x-cors-headers':JSON.stringify({Authorization:'Bearer '+appleCfg.dev,'Music-User-Token':appleCfg.mut})}});
-  if(!r.ok) throw new Error('HTTP '+r.status+' on '+path.split('?')[0]+((r.status===401||r.status===403)?' (check your tokens)':''));
-  return r.json();
-};
-const LY_SOURCES=[{source:'Apple Music',href:'https://music.apple.com',get:async(m,sig)=>{
-  if(!(appleCfg.dev&&appleCfg.mut)) throw new Error('Tokens not set');
-  const find=async term=>{ const s=await appleGet('/search?'+new URLSearchParams({term,types:'songs',limit:5}),sig);
-    return (s&&s.results&&s.results.songs&&s.results.songs.data)||[]; };
-  let songs=await find(m.title+' '+m.artist);
-  if(!songs.length) songs=await find(m.title);                 // artist spelling often differs
-  if(!songs.length) throw new Error('Song not found on Apple Music');
-  const want=m.dur*1000;                                       // prefer the match whose length is within 3s
-  const best=(want&&songs.find(x=>Math.abs((x.attributes.durationInMillis||0)-want)<3000))||songs[0];
-  let ttml=null,last='';
-  for(const p of ['/songs/'+best.id+'/lyrics','/songs/'+best.id+'/syllable-lyrics']){
-    try{ const l=await appleGet(p,sig); const at=l&&l.data&&l.data[0]&&l.data[0].attributes; if(at&&at.ttml){ ttml=at.ttml; break; } }
-    catch(e){ last=e.message; }
-  }
-  if(!ttml) throw new Error('No lyrics returned ('+(last||'empty response')+')');
-  return {ttml};
-}}];   // Apple Music is the only lyrics source
-let lyErr='',lyLines=[],lyIdx=-1,lyToken=0,lyHold=0,lyCache={},lySynced=false,lyTab=false;
+/* ---------- LYRICS (lyrics.ovh only) ---------- */
+// lyrics.ovh returns plain text without timestamps, so lines can't be synced exactly.
+// Auto-scroll follows the song's progress instead (approximate). Manual scrolling pauses it for 3.5s.
+const LYRICS_API='https://api.lyrics.ovh';
+let lyLines=[],lyToken=0,lyHold=0,lyCache={},lyTab=false,lyAuto=true,lyErr='';
 const lyBox=$('lyrics-box');
-
-function parseLRC(txt){
-  const out=[];
-  String(txt||'').split(/\r?\n/).forEach(l=>{
-    const st=[...l.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)];
-    const text=l.replace(/\[[^\]]*\]/g,'').replace(/<[^>]*>/g,'').trim();
-    st.forEach(s=>out.push({t:+s[1]*60+ +s[2],text}));
-  });
-  return out.sort((a,b)=>a.t-b.t);
+const lyClean=s=>String(s||'').replace(/\s*[\(\[].*?[\)\]]/g,'').replace(/\s*[-–]\s*(from|feat|ft|remix|reprise|original)\b.*$/i,'').trim();
+const lyNorm=s=>String(s||'').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+async function ovhJson(url,sig){
+  const r=await fetch(url,{signal:sig});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
 }
-// accepts LRC string, {syncedLyrics}, {plainLyrics}, or arrays of timed lines (ms timestamps)
-function ttTime(s){
-  s=String(s||'').trim(); if(!s) return null;
-  if(/s$/.test(s)) return parseFloat(s);                       // "83.4s"
-  return s.split(':').map(parseFloat).reduce((a,v)=>a*60+v,0);  // "1:23.4" or "00:01:23.4"
+function ovhText(d){
+  let t=String(d&&d.lyrics||'').replace(/\r\n?/g,'\n').trim();
+  t=t.replace(/^Paroles de la chanson[^\n]*\n+/i,'').replace(/\n{3,}/g,'\n\n');
+  return t.length>20?t:'';
 }
-// Apple Music lyrics come as TTML (XML): one <p begin="..."> per line, optional <span> per word/syllable
-function parseTTML(x){
-  const doc=new DOMParser().parseFromString(x,'application/xml');
-  if(doc.querySelector('parsererror')) return null;
-  const lines=[...doc.getElementsByTagName('p')]
-    .map(p=>({t:ttTime(p.getAttribute('begin')),text:(p.textContent||'').replace(/\s+/g,' ').trim()}))
-    .filter(l=>l.text&&l.t!=null&&!isNaN(l.t));
-  return lines.length?{lines,synced:true}:null;
-}
-function parseLyrics(d){
-  if(!d) return null;
-  if(typeof d==='string'&&/^\s*<(\?xml|tt[\s>])/i.test(d)) return parseTTML(d);
-  if(d.ttml) return parseTTML(d.ttml);
-  if(d.data&&d.data[0]&&d.data[0].attributes&&d.data[0].attributes.ttml) return parseTTML(d.data[0].attributes.ttml);
-  if(typeof d==='string') return /\[\d+:\d+/.test(d)?{lines:parseLRC(d),synced:true}:{lines:d.split(/\r?\n/).map(t=>({t:0,text:t})),synced:false};
-  if(d.syncedLyrics) return {lines:parseLRC(d.syncedLyrics),synced:true};
-  const arr=Array.isArray(d)?d:d.content||d.lyrics||d.lines||d.data;
-  if(typeof arr==='string') return parseLyrics(arr);
-  if(Array.isArray(arr)&&arr.length){
-    const lines=arr.map(x=>{
-      const raw=x.timestamp??x.startTime??x.start??x.time??x.startTimeMs;
-      const text=x.text??x.words??x.line??(x.syllabus&&x.syllabus.map(s=>s.text).join(''))??'';
-      return {t:raw==null?null:Number(raw)/1000,text:String(text).trim()};
-    }).filter(x=>x.text);
-    if(lines.length&&lines.every(x=>x.t!=null&&!isNaN(x.t))) return {lines,synced:true};
+async function findLyrics(t,sig){
+  const title=lyClean(t.name);
+  const artists=[...new Set((t.primaryArtists||'').split(',').map(lyClean).filter(Boolean))].slice(0,3);
+  for(const a of artists){                                   // 1. direct lookup for each credited artist
+    try{ const x=ovhText(await ovhJson(`${LYRICS_API}/v1/${encodeURIComponent(a)}/${encodeURIComponent(title)}`,sig)); if(x) return x; }
+    catch(e){ if(e.name==='AbortError') throw e; lyErr=e.message; }
   }
-  if(d.plainLyrics) return {lines:d.plainLyrics.split(/\r?\n/).map(t=>({t:0,text:t})),synced:false};
-  return null;
+  try{                                                       // 2. fuzzy search, then look up the closest title
+    const s=await ovhJson(`${LYRICS_API}/suggest/${encodeURIComponent((title+' '+(artists[0]||'')).trim())}`,sig);
+    const nt=lyNorm(title);
+    const hits=(s.data||[]).filter(h=>h.artist&&h.title&&(lyNorm(h.title).includes(nt)||nt.includes(lyNorm(h.title))));
+    for(const h of hits.slice(0,3)){
+      const x=ovhText(await ovhJson(`${LYRICS_API}/v1/${encodeURIComponent(h.artist.name)}/${encodeURIComponent(h.title)}`,sig).catch(()=>null));
+      if(x) return x;
+    }
+  }catch(e){ if(e.name==='AbortError') throw e; lyErr=lyErr||e.message; }
+  return '';
 }
-async function findLyrics(t){
-  const clean=s=>String(s||'').replace(/\s*[\(\[].*?[\)\]]/g,'').replace(/\s*[-–]\s*(from|feat|ft|remix|reprise|original)\b.*$/i,'').trim();
-  const m={title:clean(t.name),artist:clean((t.primaryArtists||'').split(',')[0]),
-           album:clean(t.album),dur:Math.round(t.duration||audio.duration||0)||''};
-  // every source runs in parallel with its own 12s timeout
-  const jobs=LY_SOURCES.map(s=>{
-    const ctl=new AbortController(), to=setTimeout(()=>ctl.abort(),12000);
-    return s.get(m,ctl.signal).then(parseLyrics)
-      .then(p=>p&&p.lines.length?{...p,source:s.source,href:s.href}:null)
-      .catch(e=>{ lyErr=e.name==='AbortError'?'Timed out':String(e.message||e); return null; }).finally(()=>clearTimeout(to));
-  });
-  // walk in priority order: return the first synced result right away, else keep the best plain one
-  let plain=null;
-  for(const j of jobs){ const r=await j; if(r&&r.synced) return r; if(r&&!plain) plain=r; }
-  return plain;
-}
-function renderLyrics(r){
-  lyIdx=-1; lyBox.scrollTop=0;
-  if(!r){ lyLines=[]; lySynced=false; lyBox.innerHTML='<div class="ly plain">Lyrics not found'+(lyErr?'<br><small>'+esc(lyErr)+'</small>':'')+'</div>'; $('lyrics-src').textContent=''; return; }
-  lyLines=r.lines; lySynced=r.synced;
-  lyBox.innerHTML=r.lines.map((l,i)=>`<div class="ly${r.synced?'':' plain'}" data-i="${i}">${esc(l.text)||'&nbsp;'}</div>`).join('');
-  $('lyrics-src').innerHTML=`Lyrics: <a href="${r.href}" target="_blank" rel="noopener" class="underline">${r.source}</a>${r.synced?'':' (not synced)'}`;
+function renderLyrics(text){
+  lyBox.scrollTop=0;
+  if(!text){
+    lyLines=[]; $('lyrics-src').textContent='';
+    lyBox.innerHTML='<div class="ly plain">Lyrics not found'+(lyErr?'<br><small>'+esc(lyErr)+'</small>':'')+'</div>';
+    return;
+  }
+  lyLines=text.split('\n');
+  lyBox.innerHTML=lyLines.map(l=>`<div class="ly">${esc(l)||'&nbsp;'}</div>`).join('');
+  $('lyrics-src').innerHTML='Lyrics: <a href="https://lyrics.ovh" target="_blank" rel="noopener" class="underline">lyrics.ovh</a> (not synced)';
   syncLyrics(audio.currentTime,true);
 }
 async function loadLyrics(t){
   if(!t) return;
-  if(!(appleCfg.dev&&appleCfg.mut)){ lyBox.dataset.id=String(t.id); lyBox.innerHTML='<div class="ly plain">Apple Music tokens not set.<br>Tap &ldquo;Set Apple Music tokens&rdquo; below.</div>'; $('lyrics-src').textContent=''; return; }
   const token=++lyToken;
-  lyBox.dataset.id=String(t.id); lyLines=[]; lySynced=false; lyIdx=-1;
+  lyBox.dataset.id=String(t.id); lyLines=[];
   if(lyCache[t.id]!==undefined){ renderLyrics(lyCache[t.id]); return; }
-  lyBox.innerHTML='<div class="ly plain">Loading lyrics...</div>'; $('lyrics-src').textContent='';
-  lyErr='';
-  const r=await findLyrics(t).catch(()=>null);
-  if(r) lyCache[t.id]=r;                 // failures aren't cached, so reopening retries
-  if(token===lyToken) renderLyrics(r);
+  lyBox.innerHTML='<div class="ly plain">Loading lyrics...</div>'; $('lyrics-src').textContent=''; lyErr='';
+  const ctl=new AbortController(), to=setTimeout(()=>ctl.abort(),20000);   // lyrics.ovh can be slow
+  let text='';
+  try{ text=await findLyrics(t,ctl.signal); }
+  catch(e){ lyErr=e.name==='AbortError'?'Timed out (lyrics.ovh is slow)':e.message; }
+  clearTimeout(to);
+  if(token!==lyToken) return;
+  if(text) lyCache[t.id]=text; else lyBox.dataset.id='';   // failures aren't cached, so reopening retries
+  renderLyrics(text);
 }
-// load lyrics only when the Lyrics tab is showing and the song changed
+// load lyrics only while the Lyrics tab is showing and the song changed
 function ensureLyrics(){
   const t=currentPlaylist[currentTrackIndex];
   if(lyTab&&t&&lyBox.dataset.id!==String(t.id)) loadLyrics(t);
 }
+// scroll position follows playback progress (lyrics roughly span 5%..90% of a song)
 function syncLyrics(time,force){
-  if(!lyTab||!lySynced||!lyLines.length) return;
-  let i=-1; for(let k=0;k<lyLines.length;k++){ if(lyLines[k].t<=time+0.3) i=k; else break; }
-  if(i===lyIdx&&!force) return;
-  lyIdx=i; const els=lyBox.children;
-  for(let k=0;k<els.length;k++) els[k].className='ly'+(k<i?' past':k===i?' act':'');
-  const el=els[i];
-  if(el&&Date.now()>lyHold) lyBox.scrollTo({top:el.offsetTop-lyBox.clientHeight/2+el.clientHeight/2,behavior:force?'auto':'smooth'});
+  if(!lyTab||!lyAuto||!lyLines.length||!audio.duration||!isFinite(audio.duration)) return;
+  if(!force&&Date.now()<lyHold) return;
+  const p=Math.min(1,Math.max(0,(time/audio.duration-0.05)/0.85));
+  lyBox.scrollTop=p*(lyBox.scrollHeight-lyBox.clientHeight);
 }
-// pause auto-scroll while the user scrolls manually
 ['wheel','touchmove'].forEach(ev=>lyBox.addEventListener(ev,()=>{ lyHold=Date.now()+3500; },{passive:true}));
-lyBox.addEventListener('click',e=>{
-  const el=e.target.closest('.ly'); if(!el||!lySynced) return;
-  audio.currentTime=lyLines[+el.dataset.i].t; lyHold=0; audio.play().catch(()=>{});
-});
 function showTab(tab){
   lyTab=tab==='lyrics';
   $('cover-wrap').style.display=lyTab?'none':'flex'; $('lyrics-wrap').style.display=lyTab?'block':'none';
   $('tab-cover').classList.toggle('on',!lyTab); $('tab-lyrics').classList.toggle('on',lyTab);
   if(lyTab){ ensureLyrics(); lyHold=0; syncLyrics(audio.currentTime,true); }
 }
-$('ly-set').onclick=()=>{
-  const clean=v=>(v||'').trim().replace(/^Bearer\s+/i,'').replace(/^["']|["']$/g,'');
-  const d=prompt('Apple Music Developer Token (JWT):',appleCfg.dev); if(d===null) return;
-  const u=prompt('Apple Music Music-User-Token:',appleCfg.mut); if(u===null) return;
-  appleCfg.dev=clean(d); appleCfg.mut=clean(u);
-  try{ localStorage.setItem('mm4u_apple_dev',appleCfg.dev); localStorage.setItem('mm4u_apple_mut',appleCfg.mut); }catch(e){}
-  lyBox.dataset.id=''; ensureLyrics();
+$('ly-auto').onclick=()=>{
+  lyAuto=!lyAuto; $('ly-auto').textContent='Auto-scroll: '+(lyAuto?'On':'Off'); lyHold=0;
+  if(lyAuto) syncLyrics(audio.currentTime,true);
 };
 $('tab-cover').onclick=()=>showTab('cover'); $('tab-lyrics').onclick=()=>showTab('lyrics');
 
@@ -677,7 +609,14 @@ async function doSaavnSearch(query,NotScroll,isMore){
     if(!results.length){ if(!isMore) showError('No results found'); loadMoreBtn.style.display='none'; return; }
     page_index=nextPage; lastSearch=query;
     if(isMore) currentPlaylist=currentPlaylist.concat(results);
-    else{ currentPlaylist=results; currentTrackIndex=-1; results_objects={}; grid.innerHTML=''; }
+    else{
+      const cur=currentSong(); currentPlaylist=results; currentTrackIndex=-1; results_objects={}; grid.innerHTML='';
+      if(cur){
+        results_objects[cur.id]={track:cur};
+        const i=results.findIndex(t=>String(t.id)===String(cur.id));
+        if(i>=0) currentTrackIndex=i; else{ currentPlaylist=[cur,...results]; currentTrackIndex=0; }
+      }
+    }
     register(results);
     grid.insertAdjacentHTML('beforeend',results.map(createSongCard).join(''));
     if(!NotScroll&&!isMore) grid.scrollIntoView({behavior:'smooth'});
@@ -693,7 +632,7 @@ $('saavn-search-box').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.pre
 
 /* ---------- shortcuts / bitrate ---------- */
 document.addEventListener('keydown',e=>{
-  if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) return;
+  if(['INPUT','TEXTAREA','SELECT','BUTTON'].includes(e.target.tagName)) return;
   if(e.code==='Space'){ e.preventDefault(); togglePlay(); }
   else if(e.code==='ArrowLeft'&&e.ctrlKey) prevSong();
   else if(e.code==='ArrowRight'&&e.ctrlKey) nextSong();
