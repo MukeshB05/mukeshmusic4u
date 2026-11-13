@@ -61,6 +61,8 @@ body{background:#0f172a;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
 #lyrics-box::-webkit-scrollbar{display:none}
 .ly{font-size:1.15rem;font-weight:600;line-height:1.5;padding:.1rem 0;color:#f1f5f9}
 .ly.plain{font-size:1rem;font-weight:500;color:#cbd5e1}
+.ly.dim{opacity:.45;transition:opacity .25s,transform .25s}
+.ly.now{opacity:1;color:#fff;transform:scale(1.05)}
 a.avatar{position:fixed;bottom:100px;right:-100px;animation:slide .5s 4.5s forwards;display:block;z-index:4}
 a.avatar img{border-radius:100%;width:50px;border:2px solid red}
 @keyframes slide{from{right:-100px;transform:rotate(360deg);opacity:0}to{right:30px;transform:rotate(0);opacity:1}}
@@ -273,12 +275,15 @@ function PlayAudio(song_id){
   currentTrackIndex=currentPlaylist.findIndex(t=>String(t.id)===String(song_id));
   updateSongInfo(track);
   audio.src=url;
-  audio.play().catch(err=>{ console.error(err); setIsPlaying(false); $('mp-artist').textContent='Could not play. Try another song or lower bitrate.'; });
+  audio.play().catch(err=>{
+    if(err&&err.name==='AbortError') return;   // skipped to another song quickly: not a real error
+    console.error(err); setIsPlaying(false); $('mp-artist').textContent='Could not play. Try another song or lower bitrate.';
+  });
   updateMediaSession(track); markActive(); refreshLike();
   if($('full-player').classList.contains('open')){ loadExtras(track); ensureLyrics(); }
 }
 /* PLAY / PAUSE */
-function togglePlay(){ if(!audio.src) return; audio.paused ? audio.play().catch(console.error) : audio.pause(); }
+function togglePlay(){ if(!audio.src) return; audio.paused ? audio.play().catch(e=>{ if(e.name!=='AbortError') console.error(e); }) : audio.pause(); }
 function setIsPlaying(p){ isPlaying=p; const c=p?'fas fa-pause':'fas fa-play'; icon($('mp-play'),c); icon($('fp-play'),c); }
 function prevSong(){
   if(audio.currentTime>3){ audio.currentTime=0; return; }
@@ -338,6 +343,7 @@ audio.addEventListener('play',()=>{ setIsPlaying(true); if('mediaSession' in nav
 audio.addEventListener('pause',()=>{ setIsPlaying(false); if('mediaSession' in navigator) navigator.mediaSession.playbackState='paused'; });
 audio.addEventListener('waiting',()=>icon($('fp-play'),'fas fa-spinner fa-spin'));
 audio.addEventListener('playing',()=>setIsPlaying(true));
+audio.addEventListener('canplay',()=>setIsPlaying(!audio.paused));   // resets a stuck buffering spinner
 audio.addEventListener('loadedmetadata',()=>{ $('fp-dur').textContent=formatTime(audio.duration); updatePosition(); });
 audio.addEventListener('timeupdate',()=>{
   syncLyrics(audio.currentTime);
@@ -428,77 +434,125 @@ async function loadExtras(track){
   markActive();
 }
 
-/* ---------- LYRICS (lyrics.ovh only) ---------- */
-// lyrics.ovh returns plain text without timestamps, so lines can't be synced exactly.
-// Auto-scroll follows the song's progress instead (approximate). Manual scrolling pauses it for 3.5s.
-const LYRICS_API='https://api.lyrics.ovh';
-let lyLines=[],lyToken=0,lyHold=0,lyCache={},lyTab=false,lyAuto=true,lyErr='';
+/* ---------- LYRICS (LRCLIB synced -> lyrics.ovh fallback) ---------- */
+const LRCLIB='https://lrclib.net/api', OVH='https://api.lyrics.ovh', enc=encodeURIComponent;
+let lyLines=[],lyTimes=null,lyEls=[],lyActive=-1,lyToken=0,lyHold=0,lyCache={},lyTab=false,lyAuto=true;
 const lyBox=$('lyrics-box');
 const lyClean=s=>String(s||'').replace(/\s*[\(\[].*?[\)\]]/g,'').replace(/\s*[-–]\s*(from|feat|ft|remix|reprise|original)\b.*$/i,'').trim();
 const lyNorm=s=>String(s||'').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
-async function ovhJson(url,sig){
-  const r=await fetch(url,{signal:sig});
-  if(!r.ok) throw new Error('HTTP '+r.status);
-  return r.json();
+
+async function getJson(url,ms){
+  const c=new AbortController(), to=setTimeout(()=>c.abort(),ms);
+  try{ const r=await fetch(url,{signal:c.signal}); if(!r.ok) throw new Error('HTTP '+r.status); return await r.json(); }
+  finally{ clearTimeout(to); }
+}
+function parseLRC(s){
+  const out=[];
+  String(s||'').split(/\r?\n/).forEach(line=>{
+    const tags=[...line.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)]; if(!tags.length) return;
+    const text=line.replace(/\[[^\]]*\]/g,'').trim();
+    tags.forEach(m=>out.push({t:(+m[1])*60+(+m[2]),text}));
+  });
+  return out.sort((a,b)=>a.t-b.t);
+}
+function packLrclib(d){
+  if(!d||d.instrumental) return null;
+  const synced=d.syncedLyrics?parseLRC(d.syncedLyrics):[];
+  if(synced.length>2) return {src:'LRCLIB',synced};
+  const plain=String(d.plainLyrics||'').replace(/\r\n?/g,'\n').trim();
+  return plain.length>20?{src:'LRCLIB',plain}:null;
+}
+function pickBest(arr,title,dur){
+  if(!Array.isArray(arr)) return null;
+  const nt=lyNorm(title);
+  const ok=arr.filter(x=>!x.instrumental&&(x.syncedLyrics||x.plainLyrics)&&x.trackName&&
+    (lyNorm(x.trackName).includes(nt)||nt.includes(lyNorm(x.trackName))));
+  const close=ok.filter(x=>!dur||!x.duration||Math.abs(x.duration-dur)<=10);   // same version of the song
+  return (close.length?close:ok).map(x=>({x,s:(x.syncedLyrics?0:100)+Math.abs((x.duration||0)-(dur||0))}))
+    .sort((a,b)=>a.s-b.s)[0]?.x||null;
 }
 function ovhText(d){
   let t=String(d&&d.lyrics||'').replace(/\r\n?/g,'\n').trim();
   t=t.replace(/^Paroles de la chanson[^\n]*\n+/i,'').replace(/\n{3,}/g,'\n\n');
   return t.length>20?t:'';
 }
-async function findLyrics(t,sig){
-  const title=lyClean(t.name);
+async function findLyrics(t){
+  const title=lyClean(t.name)||t.name, dur=Math.round(t.duration)||0, errs=[];
   const artists=[...new Set((t.primaryArtists||'').split(',').map(lyClean).filter(Boolean))].slice(0,3);
-  for(const a of artists){                                   // 1. direct lookup for each credited artist
-    try{ const x=ovhText(await ovhJson(`${LYRICS_API}/v1/${encodeURIComponent(a)}/${encodeURIComponent(title)}`,sig)); if(x) return x; }
-    catch(e){ if(e.name==='AbortError') throw e; lyErr=e.message; }
+  const tryit=async fn=>{ try{ return await fn(); }catch(e){ errs.push(e.name==='AbortError'?'timeout':e.message); return null; } };
+  // 1. LRCLIB exact lookup
+  for(const a of artists){
+    const p=packLrclib(await tryit(()=>getJson(`${LRCLIB}/get?artist_name=${enc(a)}&track_name=${enc(title)}`,8000)));
+    if(p) return {res:p,errs};
   }
-  try{                                                       // 2. fuzzy search, then look up the closest title
-    const s=await ovhJson(`${LYRICS_API}/suggest/${encodeURIComponent((title+' '+(artists[0]||'')).trim())}`,sig);
-    const nt=lyNorm(title);
-    const hits=(s.data||[]).filter(h=>h.artist&&h.title&&(lyNorm(h.title).includes(nt)||nt.includes(lyNorm(h.title))));
-    for(const h of hits.slice(0,3)){
-      const x=ovhText(await ovhJson(`${LYRICS_API}/v1/${encodeURIComponent(h.artist.name)}/${encodeURIComponent(h.title)}`,sig).catch(()=>null));
-      if(x) return x;
-    }
-  }catch(e){ if(e.name==='AbortError') throw e; lyErr=lyErr||e.message; }
-  return '';
+  // 2. LRCLIB search (best duration match)
+  for(const q of [`track_name=${enc(title)}&artist_name=${enc(artists[0]||'')}`,`q=${enc((title+' '+(artists[0]||'')).trim())}`]){
+    const best=pickBest(await tryit(()=>getJson(`${LRCLIB}/search?${q}`,8000)),title,dur);
+    const p=packLrclib(best); if(p) return {res:p,errs};
+  }
+  // 3. lyrics.ovh direct, then its suggest search
+  for(const a of artists){
+    const x=ovhText(await tryit(()=>getJson(`${OVH}/v1/${enc(a)}/${enc(title)}`,12000)));
+    if(x) return {res:{src:'lyrics.ovh',plain:x},errs};
+  }
+  const s=await tryit(()=>getJson(`${OVH}/suggest/${enc((title+' '+(artists[0]||'')).trim())}`,8000));
+  const nt=lyNorm(title);
+  const hits=((s&&s.data)||[]).filter(h=>h.artist&&h.title&&(lyNorm(h.title).includes(nt)||nt.includes(lyNorm(h.title))));
+  for(const h of hits.slice(0,3)){
+    const x=ovhText(await tryit(()=>getJson(`${OVH}/v1/${enc(h.artist.name)}/${enc(h.title)}`,12000)));
+    if(x) return {res:{src:'lyrics.ovh',plain:x},errs};
+  }
+  return {res:null,errs};
 }
-function renderLyrics(text){
-  lyBox.scrollTop=0;
-  if(!text){
-    lyLines=[]; $('lyrics-src').textContent='';
-    lyBox.innerHTML='<div class="ly plain">Lyrics not found'+(lyErr?'<br><small>'+esc(lyErr)+'</small>':'')+'</div>';
+function renderLyrics(r,errs){
+  lyBox.scrollTop=0; lyEls=[]; lyActive=-1; lyTimes=null; lyLines=[];
+  if(!r){
+    $('lyrics-src').textContent='';
+    lyBox.innerHTML='<div class="ly plain">Lyrics not found'+(errs&&errs.length?'<br><small>'+esc([...new Set(errs)].join(', '))+'</small>':'')+'</div>';
     return;
   }
-  lyLines=text.split('\n');
-  lyBox.innerHTML=lyLines.map(l=>`<div class="ly">${esc(l)||'&nbsp;'}</div>`).join('');
-  $('lyrics-src').innerHTML='Lyrics: <a href="https://lyrics.ovh" target="_blank" rel="noopener" class="underline">lyrics.ovh</a> (not synced)';
+  if(r.synced){
+    lyTimes=r.synced.map(l=>l.t);
+    lyBox.innerHTML=r.synced.map(l=>`<div class="ly dim">${esc(l.text)||'♪'}</div>`).join('');
+    lyEls=[...lyBox.children];
+    $('lyrics-src').innerHTML='Lyrics: <a href="https://lrclib.net" target="_blank" rel="noopener" class="underline">LRCLIB</a> (synced)';
+  }else{
+    lyLines=r.plain.split('\n');
+    lyBox.innerHTML=lyLines.map(l=>`<div class="ly">${esc(l)||'&nbsp;'}</div>`).join('');
+    $('lyrics-src').textContent='Lyrics: '+r.src+' (not synced)';
+  }
   syncLyrics(audio.currentTime,true);
 }
 async function loadLyrics(t){
   if(!t) return;
   const token=++lyToken;
-  lyBox.dataset.id=String(t.id); lyLines=[];
+  lyBox.dataset.id=String(t.id); lyLines=[]; lyTimes=null;
   if(lyCache[t.id]!==undefined){ renderLyrics(lyCache[t.id]); return; }
-  lyBox.innerHTML='<div class="ly plain">Loading lyrics...</div>'; $('lyrics-src').textContent=''; lyErr='';
-  const ctl=new AbortController(), to=setTimeout(()=>ctl.abort(),20000);   // lyrics.ovh can be slow
-  let text='';
-  try{ text=await findLyrics(t,ctl.signal); }
-  catch(e){ lyErr=e.name==='AbortError'?'Timed out (lyrics.ovh is slow)':e.message; }
-  clearTimeout(to);
-  if(token!==lyToken) return;
-  if(text) lyCache[t.id]=text; else lyBox.dataset.id='';   // failures aren't cached, so reopening retries
-  renderLyrics(text);
+  lyBox.innerHTML='<div class="ly plain">Loading lyrics...</div>'; $('lyrics-src').textContent='';
+  const {res,errs}=await findLyrics(t);
+  if(token!==lyToken) return;                       // user changed song meanwhile
+  if(res) lyCache[t.id]=res; else lyBox.dataset.id='';   // failures aren't cached, so reopening retries
+  renderLyrics(res,errs);
 }
 // load lyrics only while the Lyrics tab is showing and the song changed
 function ensureLyrics(){
   const t=currentPlaylist[currentTrackIndex];
   if(lyTab&&t&&lyBox.dataset.id!==String(t.id)) loadLyrics(t);
 }
-// scroll position follows playback progress (lyrics roughly span 5%..90% of a song)
 function syncLyrics(time,force){
-  if(!lyTab||!lyAuto||!lyLines.length||!audio.duration||!isFinite(audio.duration)) return;
+  if(!lyTab||!lyAuto) return;
+  if(lyTimes){                                       // synced: highlight + centre the current line
+    let lo=0,hi=lyTimes.length-1,i=-1;
+    while(lo<=hi){ const m=(lo+hi)>>1; if(lyTimes[m]<=time+0.25){ i=m; lo=m+1; } else hi=m-1; }
+    if(i===lyActive&&!force) return;
+    if(lyEls[lyActive]) lyEls[lyActive].classList.remove('now');
+    lyActive=i;
+    if(i<0) return;
+    const el=lyEls[i]; el.classList.add('now');
+    if(force||Date.now()>=lyHold) lyBox.scrollTo({top:el.offsetTop-lyBox.clientHeight/2+el.clientHeight/2});
+    return;
+  }
+  if(!lyLines.length||!audio.duration||!isFinite(audio.duration)) return;   // plain: approximate
   if(!force&&Date.now()<lyHold) return;
   const p=Math.min(1,Math.max(0,(time/audio.duration-0.05)/0.85));
   lyBox.scrollTop=p*(lyBox.scrollHeight-lyBox.clientHeight);
@@ -642,7 +696,7 @@ $('saavn-bitrate').addEventListener('change',()=>{
   const pos=audio.currentTime, was=!audio.paused, u=pickLink(t.downloadUrl,bitrateIndex()); if(!u) return;
   audio.src=u;
   audio.addEventListener('loadedmetadata',function f(){ audio.currentTime=pos; audio.removeEventListener('loadedmetadata',f); });
-  if(was) audio.play().catch(console.error);
+  if(was) audio.play().catch(e=>{ if(e.name!=='AbortError') console.error(e); });
 });
 window.addEventListener('load',()=>doSaavnSearch('tamil',true));
 </script>
