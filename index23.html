@@ -128,6 +128,7 @@ a.avatar img{border-radius:100%;width:50px;border:2px solid red}
     <div id="lyrics-wrap" style="display:none">
       <div id="lyrics-box"></div>
       <div id="lyrics-src" class="text-xs text-gray-500 text-center mt-1"></div>
+      <div class="text-center"><button id="ly-set" class="text-xs text-gray-400 underline mt-1">Set Apple Music tokens</button></div>
     </div>
     <!-- SONG INFO -->
     <div class="mt-5 text-center">
@@ -444,19 +445,27 @@ const appleCfg=(()=>{ try{
 const appleGet=async(path,sig)=>{
   const r=await fetch(APPLE_PROXY+'?url='+encodeURIComponent('https://api.music.apple.com/v1/catalog/'+appleCfg.sf+path),
     {signal:sig,headers:{'x-cors-headers':JSON.stringify({Authorization:'Bearer '+appleCfg.dev,'Music-User-Token':appleCfg.mut})}});
-  return r.ok?r.json():null;
+  if(!r.ok) throw new Error('HTTP '+r.status+' on '+path.split('?')[0]+((r.status===401||r.status===403)?' (check your tokens)':''));
+  return r.json();
 };
-const LY_SOURCES=appleCfg.dev&&appleCfg.mut?[{source:'Apple Music',href:'https://music.apple.com',get:async(m,sig)=>{
-  const s=await appleGet('/search?'+new URLSearchParams({term:m.title+' '+m.artist,types:'songs',limit:5}),sig);
-  const songs=(s&&s.results&&s.results.songs&&s.results.songs.data)||[];
-  if(!songs.length) return null;
-  const want=m.dur*1000;                                   // prefer the match whose length is within 3s
+const LY_SOURCES=[{source:'Apple Music',href:'https://music.apple.com',get:async(m,sig)=>{
+  if(!(appleCfg.dev&&appleCfg.mut)) throw new Error('Tokens not set');
+  const find=async term=>{ const s=await appleGet('/search?'+new URLSearchParams({term,types:'songs',limit:5}),sig);
+    return (s&&s.results&&s.results.songs&&s.results.songs.data)||[]; };
+  let songs=await find(m.title+' '+m.artist);
+  if(!songs.length) songs=await find(m.title);                 // artist spelling often differs
+  if(!songs.length) throw new Error('Song not found on Apple Music');
+  const want=m.dur*1000;                                       // prefer the match whose length is within 3s
   const best=(want&&songs.find(x=>Math.abs((x.attributes.durationInMillis||0)-want)<3000))||songs[0];
-  const l=await appleGet('/songs/'+best.id+'/lyrics',sig);
-  const ttml=l&&l.data&&l.data[0]&&l.data[0].attributes&&l.data[0].attributes.ttml;
-  return ttml?{ttml}:null;
-}}]:[];   // Apple Music is the only lyrics source
-let lyLines=[],lyIdx=-1,lyToken=0,lyHold=0,lyCache={},lySynced=false,lyTab=false;
+  let ttml=null,last='';
+  for(const p of ['/songs/'+best.id+'/lyrics','/songs/'+best.id+'/syllable-lyrics']){
+    try{ const l=await appleGet(p,sig); const at=l&&l.data&&l.data[0]&&l.data[0].attributes; if(at&&at.ttml){ ttml=at.ttml; break; } }
+    catch(e){ last=e.message; }
+  }
+  if(!ttml) throw new Error('No lyrics returned ('+(last||'empty response')+')');
+  return {ttml};
+}}];   // Apple Music is the only lyrics source
+let lyErr='',lyLines=[],lyIdx=-1,lyToken=0,lyHold=0,lyCache={},lySynced=false,lyTab=false;
 const lyBox=$('lyrics-box');
 
 function parseLRC(txt){
@@ -512,7 +521,7 @@ async function findLyrics(t){
     const ctl=new AbortController(), to=setTimeout(()=>ctl.abort(),12000);
     return s.get(m,ctl.signal).then(parseLyrics)
       .then(p=>p&&p.lines.length?{...p,source:s.source,href:s.href}:null)
-      .catch(()=>null).finally(()=>clearTimeout(to));
+      .catch(e=>{ lyErr=e.name==='AbortError'?'Timed out':String(e.message||e); return null; }).finally(()=>clearTimeout(to));
   });
   // walk in priority order: return the first synced result right away, else keep the best plain one
   let plain=null;
@@ -521,7 +530,7 @@ async function findLyrics(t){
 }
 function renderLyrics(r){
   lyIdx=-1; lyBox.scrollTop=0;
-  if(!r){ lyLines=[]; lySynced=false; lyBox.innerHTML='<div class="ly plain">Lyrics not found</div>'; $('lyrics-src').textContent=''; return; }
+  if(!r){ lyLines=[]; lySynced=false; lyBox.innerHTML='<div class="ly plain">Lyrics not found'+(lyErr?'<br><small>'+esc(lyErr)+'</small>':'')+'</div>'; $('lyrics-src').textContent=''; return; }
   lyLines=r.lines; lySynced=r.synced;
   lyBox.innerHTML=r.lines.map((l,i)=>`<div class="ly${r.synced?'':' plain'}" data-i="${i}">${esc(l.text)||'&nbsp;'}</div>`).join('');
   $('lyrics-src').innerHTML=`Lyrics: <a href="${r.href}" target="_blank" rel="noopener" class="underline">${r.source}</a>${r.synced?'':' (not synced)'}`;
@@ -529,11 +538,12 @@ function renderLyrics(r){
 }
 async function loadLyrics(t){
   if(!t) return;
-  if(!LY_SOURCES.length){ lyBox.dataset.id=String(t.id); lyBox.innerHTML='<div class="ly plain">Apple Music tokens not set.<br>Open the player once with ?appledev=DEV_TOKEN&amp;applemut=USER_TOKEN</div>'; $('lyrics-src').textContent=''; return; }
+  if(!(appleCfg.dev&&appleCfg.mut)){ lyBox.dataset.id=String(t.id); lyBox.innerHTML='<div class="ly plain">Apple Music tokens not set.<br>Tap &ldquo;Set Apple Music tokens&rdquo; below.</div>'; $('lyrics-src').textContent=''; return; }
   const token=++lyToken;
   lyBox.dataset.id=String(t.id); lyLines=[]; lySynced=false; lyIdx=-1;
   if(lyCache[t.id]!==undefined){ renderLyrics(lyCache[t.id]); return; }
   lyBox.innerHTML='<div class="ly plain">Loading lyrics...</div>'; $('lyrics-src').textContent='';
+  lyErr='';
   const r=await findLyrics(t).catch(()=>null);
   if(r) lyCache[t.id]=r;                 // failures aren't cached, so reopening retries
   if(token===lyToken) renderLyrics(r);
@@ -564,6 +574,14 @@ function showTab(tab){
   $('tab-cover').classList.toggle('on',!lyTab); $('tab-lyrics').classList.toggle('on',lyTab);
   if(lyTab){ ensureLyrics(); lyHold=0; syncLyrics(audio.currentTime,true); }
 }
+$('ly-set').onclick=()=>{
+  const clean=v=>(v||'').trim().replace(/^Bearer\s+/i,'').replace(/^["']|["']$/g,'');
+  const d=prompt('Apple Music Developer Token (JWT):',appleCfg.dev); if(d===null) return;
+  const u=prompt('Apple Music Music-User-Token:',appleCfg.mut); if(u===null) return;
+  appleCfg.dev=clean(d); appleCfg.mut=clean(u);
+  try{ localStorage.setItem('mm4u_apple_dev',appleCfg.dev); localStorage.setItem('mm4u_apple_mut',appleCfg.mut); }catch(e){}
+  lyBox.dataset.id=''; ensureLyrics();
+};
 $('tab-cover').onclick=()=>showTab('cover'); $('tab-lyrics').onclick=()=>showTab('lyrics');
 
 /* ---------- ACTION BAR ---------- */
